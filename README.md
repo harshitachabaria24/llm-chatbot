@@ -1,36 +1,33 @@
 # LLM Chatbot with Key Failover and Response Caching
 
-A small full-stack chat app: React frontend, FastAPI backend, SQLite storage, and a LiteLLM gateway that fails over between API keys and caches responses. Every assistant reply shows where it came from (cache or live model), which model answered, how long it took and how many tokens that one request used.
+A full-stack LLM chatbot built with React, FastAPI, SQLite, and LiteLLM. It supports multiple API keys with automatic failover, response caching, persistent chat sessions, and per-request metadata.
+
+Every assistant reply displays its source (live inference or cache), the model used, response latency, and input/output token usage.
 
 ## 1. Live URLs
 
-| | URL |
+| Component | URL |
 |---|---|
-| Frontend | _add after deploying_ |
-| Backend | _add after deploying_ |
-| Backend health | `<backend-url>/health` |
-| Demo video | _add link_ |
+| Frontend | [Live Chatbot](https://llm-chatbot-phi.vercel.app/) |
+| Backend | [Render Backend](https://llm-chatbot-backend-y1z1.onrender.com) |
+| Backend Health | [Health Check](https://llm-chatbot-backend-y1z1.onrender.com/health) |
+| API Documentation | [Swagger UI](https://llm-chatbot-backend-y1z1.onrender.com/docs) |
+| Demo Video | [Watch Project Demo](https://drive.google.com/file/d/1imLfunQKLwCp9lGWHvllcBkpbCpO_3VQ/view?usp=sharing) |
 
-Deployment notes are at the end of this file.
-
-## 2. Run locally: with Docker and without
-
-Copy and paste this directly into your `README.md`:
-
-````
+## 2. Run Locally: With Docker and Without Docker
 
 ### With Docker
 
 1. Copy `.env.example` to `.env`.
 2. Add at least two valid API keys to `LLM_API_KEYS`.
-3. Configure `LLM_MODEL` and other environment variables.
+3. Configure `LLM_MODEL` and the other environment variables.
 4. Start the application:
 
 ```bash
 docker compose up --build -d
 ```
 
-Or use:
+Alternatively, use the Makefile:
 
 ```bash
 make up
@@ -50,140 +47,239 @@ make down
 
 The named SQLite volume `app_data` is retained when containers are stopped. Do not use `docker compose down -v` unless you intend to delete the database volume.
 
-````
-
 ### Without Docker
 
-Backend (Python 3.12+):
+**Backend (Python 3.12+)**
 
-```bash
+Open a terminal in the project directory and run:
+
+```powershell
 cd backend
-python -m venv .venv && source .venv/bin/activate
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements-dev.txt
-export LLM_API_KEYS=key-one,key-two
-export LLM_MODEL=gemini/gemini-3.5-flash-lite
-export DATABASE_URL=sqlite:///./data/app.db
-export ALLOWED_ORIGINS=http://localhost:3000
-export ENABLE_FAILURE_SIMULATION=true
+```
+
+Configure the environment variables in PowerShell:
+
+```powershell
+$env:LLM_API_KEYS="key-one,key-two"
+$env:LLM_MODEL="gemini/gemini-3.5-flash-lite"
+$env:DATABASE_URL="sqlite:///./app.db"
+$env:ALLOWED_ORIGINS="http://localhost:3000"
+$env:ENABLE_FAILURE_SIMULATION="true"
+$env:CACHE_ENABLED="true"
+```
+
+Start the backend:
+
+```powershell
 uvicorn app.main:app --port 8000
 ```
 
-Frontend (Node 20+):
+**Frontend (Node.js)**
 
-```bash
+Open a separate terminal:
+
+```powershell
 cd frontend
 npm install
-VITE_API_BASE_URL=http://localhost:8000 npm run dev    # http://localhost:3000
+$env:VITE_API_BASE_URL="http://localhost:8000"
+npm run dev
 ```
 
-Backend tests (no network or real keys needed): `make test` or `cd backend && pytest`.
+**Run backend tests:**
+
+From the backend directory, run:
+
+```bash
+pytest
+```
+
+The tests do not require real API keys or live provider calls.
 
 ### Configuration
 
-All configuration is through environment variables. `.env.example` lists every one.
+All configuration is handled through environment variables. `.env.example` contains the configuration template.
 
-| Variable | Meaning |
+| Variable | Description |
 |---|---|
-| `LLM_API_KEYS` | Comma-separated key pool, at least 2. Ids are `key_1`, `key_2`, ... in this order |
-| `LLM_MODEL` | LiteLLM model name, e.g. `gemini/gemini-3.5-flash-lite`. Must match the provider of your keys |
-| `DATABASE_URL` | SQLite location, e.g. `sqlite:////data/app.db` |
-| `ALLOWED_ORIGINS` | Comma-separated CORS origins |
-| `ENABLE_FAILURE_SIMULATION` | `true` enables the `X-Simulate-Failure` header |
-| `CACHE_ENABLED` | Default `true` |
-| `KEY_COOLDOWN_SECONDS` | How long a failed key rests before it is tried again. Default 5 |
-| `MAX_HISTORY_MESSAGES` | Most recent messages sent to the model per request. Default 40 |
-| `LLM_TIMEOUT_SECONDS` | Per-call provider timeout. Default 30 |
-| `VITE_API_BASE_URL` | Frontend build-time backend URL |
+| `LLM_API_KEYS` | Comma-separated API key pool. At least two keys are required. |
+| `LLM_MODEL` | LiteLLM model name, e.g. `gemini/gemini-3.5-flash-lite`. |
+| `DATABASE_URL` | SQLite database location. |
+| `ALLOWED_ORIGINS` | Comma-separated list of permitted frontend origins. |
+| `ENABLE_FAILURE_SIMULATION` | Enables the `X-Simulate-Failure` header when set to `true`. |
+| `CACHE_ENABLED` | Enables response caching. Default: `true`. |
+| `KEY_COOLDOWN_SECONDS` | Cooldown period for a failed API key. Default: `5`. |
+| `MAX_HISTORY_MESSAGES` | Maximum number of previous messages sent to the model. Default: `40`. |
+| `LLM_TIMEOUT_SECONDS` | Provider request timeout. Default: `30`. |
+| `VITE_API_BASE_URL` | Backend URL used by the frontend at build time. |
 
-## 3. Design decisions: key fallback, caching, SQLite session storage
+## 3. Design Decisions: Key Fallback, Caching, and SQLite Session Storage
 
-### Key fallback
+### Key Fallback
 
-The gateway uses **LiteLLM's `Router`**. Each API key becomes one deployment (`key_1`, `key_2`, ...) and `fallbacks` chains each key to the ones after it. A request always starts at `key_1`. If a key returns 429, a quota error, a 5xx, or times out, the Router moves to the next key automatically. If every key fails, the API returns `503 {"detail": "all providers unavailable"}`; provider errors never reach the client, and key values are redacted from logs.
+The application uses LiteLLM's Router to manage multiple API keys.
 
-- `key_id` in the response is the deployment that answered. `fallback_attempts` is its position in the pool, i.e. how many earlier keys failed or were resting.
-- A key that just failed is put on a short cooldown (`KEY_COOLDOWN_SECONDS`) so a rate-limited key is not hammered on every request.
-- `X-Simulate-Failure` (only when `ENABLE_FAILURE_SIMULATION=true`) builds a throwaway Router for that one request in which the listed keys raise the given status. The failover itself still runs through LiteLLM, but the real Router's cooldown state is untouched. A simulated request skips the cache read so it always returns a real, live answer from a surviving key.
+- Each API key is configured as a separate deployment (`key_1`, `key_2`, etc.).
+- Requests initially use the first available key.
+- If a key encounters a rate limit (429), quota error, server error (5xx), or timeout, the Router attempts the next key.
+- If all configured keys fail, the API returns a `503 Service Unavailable` response.
+- API key values are redacted from logs.
 
-### Caching
+The response metadata includes:
 
-LiteLLM's built-in cache (`litellm.enable_cache`, in-memory) is used, and a hit is detected from LiteLLM's own `cache_hit` flag. The cache key is the model plus the full message list sent to the model (system prompt + history + new message), so the same first message in a new session is a hit, and a different message or system prompt is never served from cache. On a hit the stored reply and its stored token usage are returned, `key_id` is `null` and `fallback_attempts` is 0.
+- `key_id`: Identifies the API key deployment that successfully generated the response.
+- `fallback_attempts`: Number of earlier keys that failed or were unavailable.
 
-Notes: LiteLLM 1.110 removed its disk cache backend, so the in-memory cache is used (allowed by the spec); it is empty after a restart, while conversation history is not. The cache-hit path is warmed up at startup so the first real hit is not slowed by lazy imports.
+A failed key is temporarily placed on cooldown to avoid repeatedly sending requests to a rate-limited provider.
 
-### SQLite session storage
+The `X-Simulate-Failure` header allows controlled failure simulation when `ENABLE_FAILURE_SIMULATION=true`. It helps demonstrate failover without deliberately exhausting real API quotas.
 
-- `messages` table exactly as specified, plus an index on `(session_id, id)` and a small `sessions` table that stores the per-session system prompt. The schema is created on startup.
-- The user message and assistant reply are written in **one transaction, only after a successful reply**. A 422 or 503 therefore never appears in history, and an unknown or never-answered session is a 404.
-- The client sends only the new message. The backend loads history, builds `[system, ...history, new message]`, and keeps turns within one session serialized so concurrent sends cannot interleave.
-- A `system_prompt` in a request overrides the default for that session and is remembered for later requests.
-- Token counts are per request (system + history + new message in, one reply out), never running totals.
+### Response Caching
 
-## 4. Verification: how to see failover, cache hits and per-message token usage
+The application uses LiteLLM's built-in in-memory response cache.
+
+- The cache key includes the model and the complete message list sent to the model.
+- This includes the system prompt, conversation history, and new user message.
+- Identical requests can be served from the cache, including the same first message in a new session.
+- Different messages or system prompts produce different cache keys.
+- Cache responses include the original reply and token usage.
+- On a cache hit, `key_id` is `null` and `fallback_attempts` is `0`.
+
+The cache is in-memory, so cached responses are cleared when the backend restarts. Conversation history is stored separately in SQLite.
+
+### SQLite Session Storage
+
+SQLite is used to store conversation history and session information.
+
+- The `messages` table stores user and assistant messages.
+- A `sessions` table stores the system prompt associated with each session.
+- An index on `(session_id, id)` supports efficient message retrieval.
+- User messages and assistant replies are saved together in one transaction, only after a successful response.
+- Failed requests are not stored in conversation history.
+- Unknown sessions return a `404 Not Found` response.
+- The backend retrieves previous messages and sends the complete conversation context to the LLM.
+- A custom system prompt can be set for a session and reused in subsequent requests.
+- Input and output token counts are reported per request, not as cumulative session totals.
+
+## 4. Verification: Failover, Cache Hits, and Token Usage
 
 Replace `$B` with the backend URL.
+
+The following examples use Bash or Git Bash:
 
 ```bash
 B=http://localhost:8000
 
-# Health
+# Health check
 curl $B/health
 
-# Live inference, then a cache hit (same first message, NEW session)
-curl -s -X POST $B/chat -H 'content-type: application/json' \
+# Live inference
+curl -s -X POST $B/chat \
+  -H 'Content-Type: application/json' \
   -d '{"session_id":"demo-1","message":"What is cloud computing?"}'
-curl -s -X POST $B/chat -H 'content-type: application/json' \
+
+# Cache hit: same first message in a NEW session
+curl -s -X POST $B/chat \
+  -H 'Content-Type: application/json' \
   -d '{"session_id":"demo-2","message":"What is cloud computing?"}'
-#  -> second response: "resolution_source":"LLM_CACHE", same reply, key_id null, lower latency_ms
 
-# Failover: key_1 "returns" 429, key_2 answers
-curl -s -X POST $B/chat -H 'content-type: application/json' -H 'X-Simulate-Failure: key_1=429' \
+# Expected: resolution_source = LLM_CACHE
+
+# Failover: simulate key_1 returning 429
+curl -s -X POST $B/chat \
+  -H 'Content-Type: application/json' \
+  -H 'X-Simulate-Failure: key_1=429' \
   -d '{"session_id":"demo-3","message":"Name a prime number."}'
-#  -> 200, "key_id":"key_2","fallback_attempts":1
 
-# Every key fails: clean 503, nothing stored
-curl -s -i -X POST $B/chat -H 'content-type: application/json' -H 'X-Simulate-Failure: *=429' \
+# Expected: key_2 answers, fallback_attempts = 1
+
+# Simulate all keys failing
+curl -s -i -X POST $B/chat \
+  -H 'Content-Type: application/json' \
+  -H 'X-Simulate-Failure: *=429' \
   -d '{"session_id":"demo-4","message":"Hello"}'
-curl -s -i $B/sessions/demo-4/messages        # 404 session not found
 
-# Multi-turn memory and stored history
-curl -s -X POST $B/chat -H 'content-type: application/json' \
-  -d '{"session_id":"demo-5","message":"My name is harshita."}'
-curl -s -X POST $B/chat -H 'content-type: application/json' \
-  -d '{"session_id":"demo-5","message":"What is my name?"}'
-curl -s $B/sessions/demo-5/messages
+# Expected: 503 response; failed request is not stored
 
-# Validation: 422
-curl -s -i -X POST $B/chat -H 'content-type: application/json' -d '{"session_id":"s","message":""}'
+# Retrieve conversation history
+curl -s $B/sessions/demo-3/messages
 ```
 
-In the UI, every assistant reply shows its source, model, latency and input/output tokens. Open **Session settings** to set a system prompt or to type a failure simulation such as `key_1=429` (sent as the `X-Simulate-Failure` header). Reload the page for a new session; send the same first message again to see `LLM_CACHE`.
+The same checks can be performed using the FastAPI Swagger UI at:
 
-## 5. Setup Used: your editor and AI tools
+[http://localhost:8000/docs](http://localhost:8000/docs)
 
+In the frontend, every assistant reply displays its response source, model, latency, and input/output tokens.
 
-### Setup Used
+Open **Session settings** to configure a system prompt or enter a failure simulation such as `key_1=429`.
 
-- **Development Environment:** Windows
+## 5. Setup Used
+
+- **Operating System:** Windows
 - **Code Editor:** Visual Studio Code
-- **AI Assistance:** Claude (for coding guidance, debugging, and development support)
-- **Containerization:** Docker Desktop
-- **Backend Testing:** Pytest and FastAPI Swagger UI
+- **AI Assistance:** Claude and ChatGPT (for coding guidance, debugging, and development support)
+- **Backend:** Python, FastAPI, LiteLLM
+- **Frontend:** React, Vite
+- **Database:** SQLite
+- **Containerization:** Docker Desktop and Docker Compose
+- **Testing:** Pytest and FastAPI Swagger UI
 - **Version Control:** Git and GitHub
+- **Deployment:** Render (backend) and Vercel (frontend)
 
+## 6. Bonus Features
 
-## 6. Bonus features (if any): what you added beyond the requirements and why
+- **Router cooldown:** Temporarily avoids retrying rate-limited API keys.
+- **Key redaction:** Prevents sensitive API key values from appearing in logs.
+- **Per-session system prompts:** Allows users to customize assistant behavior for individual sessions.
+- **Failure simulation:** Makes it possible to demonstrate provider failover directly through the UI.
+- **Per-session locking:** Keeps concurrent messages within a session ordered.
+- **History cap:** Limits the conversation history sent to the model.
+- **Cache warm-up:** Reduces the delay associated with the first cache hit.
 
-- **Router cooldown** so a rate-limited key is not retried on every request.
-- **Key redaction in logs**, because provider errors can echo request URLs.
-- **Per-session system prompt** field in the UI, persisted for the session.
-- **Failure-simulation field in the UI** so failover can be demonstrated without a terminal.
-- **Per-session locking** so quick double-sends in the same session stay ordered.
-- **History cap** (`MAX_HISTORY_MESSAGES`) to keep long chats inside the model's context window.
-- **Cache warm-up at startup** so the first real cache hit is fast.
+## 7. Deployment
 
-## Deployment notes
+### Backend — Render
 
-- **Backend** (Render, Railway, Fly.io, Hugging Face Spaces): deploy the `backend/` Dockerfile. Set `LLM_API_KEYS`, `LLM_MODEL`, `ALLOWED_ORIGINS` (your frontend URL), `ENABLE_FAILURE_SIMULATION=true`, and `DATABASE_URL`. To keep history across restarts, attach a persistent volume at `/data` (Render needs a paid disk; Fly.io volumes work well). Without one, SQLite still works but resets when the container is replaced.
-- **Frontend** (Vercel, Netlify, Cloudflare Pages): root directory `frontend/`, build command `npm run build`, output `dist`, and set `VITE_API_BASE_URL` to the backend URL **before building**.
-- Finally, add the frontend origin to the backend's `ALLOWED_ORIGINS` and redeploy.
+The FastAPI backend is deployed as a Docker Web Service using the `backend/` directory.
+
+Configuration:
+
+- Runtime: Docker
+- Root directory: `backend`
+- Docker build context: `.`
+- Dockerfile: `Dockerfile`
+- Health check path: `/health`
+
+Environment variables are configured through the Render dashboard, including `LLM_API_KEYS`, `LLM_MODEL`, `DATABASE_URL`, `ALLOWED_ORIGINS`, `ENABLE_FAILURE_SIMULATION`, and `CACHE_ENABLED`.
+
+The backend is hosted on Render's free instance. Free instances can spin down after inactivity, which may cause delays on the first request.
+
+**Storage limitation:** The free Render instance does not provide a persistent disk. SQLite works during runtime, but deployed conversation history is not guaranteed to survive restarts, redeployments, or instance replacement. For persistent deployed SQLite storage, a persistent disk mounted at `/data` is required.
+
+The local Docker setup uses a named volume mounted at `/data`, which preserves SQLite history across container restarts.
+
+### Frontend — Vercel
+
+The React frontend is deployed through Vercel using the GitHub repository.
+
+Configuration:
+
+- Framework: Vite
+- Root directory: `frontend`
+- Build command: `npm run build`
+- Output directory: `dist`
+
+The following environment variable is configured in Vercel:
+
+```text
+VITE_API_BASE_URL=https://llm-chatbot-backend-y1z1.onrender.com
+```
+
+The frontend origin is configured in the backend's `ALLOWED_ORIGINS` environment variable to allow cross-origin requests.
+
+### Live Deployment
+
+- Frontend: [https://llm-chatbot-phi.vercel.app/](https://llm-chatbot-phi.vercel.app/)
+- Backend: [https://llm-chatbot-backend-y1z1.onrender.com](https://llm-chatbot-backend-y1z1.onrender.com)
