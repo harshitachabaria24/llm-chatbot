@@ -1,0 +1,166 @@
+:root {
+  --fog: #eef1f4;
+  --surface: #ffffff;
+  --ink: #14212b;
+  --muted: #5a6b79;
+  --line: #cbd3db;
+  --live: #3a4fb5;
+  --live-tint: #e9ecf9;
+  --cache: #1f7a6d;
+  --cache-tint: #e2f2ef;
+  --error: #a12d2d;
+  --error-tint: #fbeaea;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--fog);
+  color: var(--ink);
+  font-family: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.55;
+  font-size: 16px;
+}
+
+.app {
+  max-width: 760px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 24px 16px 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.top {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  padding-bottom: 16px;
+}
+h1 { margin: 0; font-size: 1.6rem; letter-spacing: -0.01em; }
+.sub { margin: 4px 0 0; color: var(--muted); max-width: 52ch; }
+.session { margin: 6px 0 0; color: var(--muted); font-size: 0.875rem; }
+.session code { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.settings {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin-bottom: 16px;
+}
+.settings summary { cursor: pointer; font-weight: 600; }
+.settings label { display: block; margin: 12px 0 4px; font-size: 0.875rem; color: var(--muted); }
+.settings textarea, .settings input {
+  width: 100%;
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--fog);
+  color: var(--ink);
+}
+
+.thread { flex: 1; display: flex; flex-direction: column; gap: 14px; padding-bottom: 16px; }
+.empty { color: var(--muted); margin: 24px 0; max-width: 52ch; }
+.pending { color: var(--muted); margin: 0; font-size: 0.9375rem; }
+
+.turn p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.turn.user {
+  align-self: flex-end;
+  max-width: 85%;
+  background: var(--ink);
+  color: #fff;
+  padding: 10px 14px;
+  border-radius: var(--radius) var(--radius) 2px var(--radius);
+}
+
+.turn.assistant {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left-width: 5px;
+  border-radius: 2px var(--radius) var(--radius) var(--radius);
+  padding: 12px 14px 12px 16px;
+  max-width: 100%;
+}
+.turn.assistant.is-live { border-left-color: var(--live); }
+.turn.assistant.is-cache { border-left-color: var(--cache); }
+.reply { max-width: 68ch; }
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 12px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 0.8125rem;
+}
+.metric { display: flex; flex-direction: column; min-width: 0; }
+.metric dt { color: var(--muted); font-size: 0.75rem; }
+.metric dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.source dd { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.source-badge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.75rem;
+}
+.is-live .source-badge { background: var(--live-tint); color: var(--live); }
+.is-cache .source-badge { background: var(--cache-tint); color: var(--cache); }
+.source-note { font-weight: 400; color: var(--muted); }
+
+.turn.error {
+  background: var(--error-tint);
+  border: 1px solid #e3b4b4;
+  color: var(--error);
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  max-width: 85%;
+}
+
+.composer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  padding: 12px 0 20px;
+  background: linear-gradient(to top, var(--fog) 75%, transparent);
+}
+.composer textarea {
+  flex: 1;
+  resize: none;
+  font: inherit;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+}
+.composer button {
+  font: inherit;
+  font-weight: 600;
+  padding: 10px 20px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--live);
+  color: #fff;
+  cursor: pointer;
+}
+.composer button:disabled { opacity: 0.55; cursor: progress; }
+
+:focus-visible { outline: 3px solid #f0a64a; outline-offset: 2px; }
+
+@media (max-width: 520px) {
+  .turn.user, .turn.error { max-width: 95%; }
+  .meta { gap: 8px 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { scroll-behavior: auto !important; }
+}
